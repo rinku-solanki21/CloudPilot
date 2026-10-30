@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudPilot | Cloud VM Pool Load Balancer & Auto-Scaler</title>
+    <!-- Chart.js for live telemetry visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2300d2ff'><path d='M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5'/></svg>">
+</head>
+<body>
+    <!-- Top Navigation Header -->
+    <header class="navbar">
+        <div class="nav-brand">
+            <div class="brand-logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
+                    <polyline points="12 12 14 10 16 12"/>
+                    <line x1="14" y1="10" x2="14" y2="16"/>
+                </svg>
+            </div>
+            <div class="brand-text">
+                <h1>CloudPilot <span class="badge-tag">v1.0</span></h1>
+                <p>Cloud Virtual Machine Pool Load Balancer & Auto-Scaler</p>
+            </div>
+        </div>
+
+        <div class="nav-status">
+            <div class="status-indicator">
+                <span class="pulse-dot" id="systemPulse"></span>
+                <span class="status-text" id="systemStatusText">SYSTEM ACTIVE</span>
+            </div>
+            <div class="status-pill" id="autoScalerPill">
+                <span class="pill-dot"></span>
+                <span id="autoScalerStatusText">AUTOSCALER: RUNNING</span>
+            </div>
+            <div class="cluster-capacity-badge">
+                <span class="cap-label">Capacity:</span>
+                <span class="cap-value" id="capacityRatio">3 / 8 VMs</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="dashboard-container">
+        
+        <!-- Controls & Simulation Action Bar -->
+        <section class="control-panel card">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
+                    <h2>Simulation Command Center</h2>
+                </div>
+                <div class="round-robin-indicator">
+                    <span>Next VM in Round Robin:</span>
+                    <strong id="nextTargetVm" class="accent-text">VM-01</strong>
+                </div>
+            </div>
+
+            <div class="btn-group">
+                <button id="btnSendOne" class="btn btn-primary" title="Send a single request distributed via Round Robin">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                    </svg>
+                    Send 1 Request
+                </button>
+
+                <button id="btnSendTen" class="btn btn-secondary" title="Dispatch 10 requests in circular sequence">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="m13 2-2 2.5V8l3 3v4l-3 3v3.5L13 22"/><path d="m11 2 2 2.5V8l-3 3v4l3 3v3.5L11 22"/>
+                    </svg>
+                    Send 10 Requests
+                </button>
+
+                <button id="btnSurge" class="btn btn-surge" title="Inject traffic surge (>80% CPU) to trigger AutoScalerThread">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                    </svg>
+                    Simulate Traffic Surge
+                </button>
+
+                <div class="dropdown-control">
+                    <select id="selectVmFault" class="vm-select">
+                        <option value="">Select VM for Health Toggle...</option>
+                    </select>
+                    <button id="btnToggleHealth" class="btn btn-warning" title="Toggle health status of selected VM">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        Toggle Health
+                    </button>
+                </div>
+
+                <button id="btnToggleMonitoring" class="btn btn-outline" title="Pause or resume the AutoScaler thread">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="iconPauseResume">
+                        <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+                    </svg>
+                    <span id="textPauseResume">Pause Monitoring</span>
+                </button>
+
+                <button id="btnReset" class="btn btn-danger" title="Revert cluster back to 3 healthy baseline VMs">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                        <path d="M3 3v5h5"/>
+                    </svg>
+                    Reset Simulation
+                </button>
+            </div>
+        </section>
+
+        <!-- KPI Telemetry Metric Cards -->
+        <section class="kpi-grid">
+            <div class="kpi-card">
+                <div class="kpi-icon icon-blue">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                        <line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
+                    </svg>
+                </div>
+                <div class="kpi-info">
+                    <span class="kpi-label">Total Virtual Machines</span>
+                    <h3 class="kpi-value" id="kpiTotalVms">3</h3>
+                    <span class="kpi-subtext" id="kpiCapacitySub">Max Limit: 8 VMs</span>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-icon icon-green">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                </div>
+                <div class="kpi-info">
+                    <span class="kpi-label">Healthy Nodes</span>
+                    <h3 class="kpi-value text-green" id="kpiHealthyVms">3</h3>
+                    <span class="kpi-subtext">Active in Load Balancer</span>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-icon icon-red">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                    </svg>
+                </div>
+                <div class="kpi-info">
+                    <span class="kpi-label">Unhealthy Nodes</span>
+                    <h3 class="kpi-value text-red" id="kpiUnhealthyVms">0</h3>
+                    <span class="kpi-subtext">Skipped by Round Robin</span>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-icon icon-purple">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+                    </svg>
+                </div>
+                <div class="kpi-info">
+                    <span class="kpi-label">Average CPU Load</span>
+                    <h3 class="kpi-value" id="kpiAvgCpu">40.0%</h3>
+                    <span class="kpi-subtext">Threshold: 80.0%</span>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-icon icon-amber">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                </div>
+                <div class="kpi-info">
+                    <span class="kpi-label">Active Connections</span>
+                    <h3 class="kpi-value" id="kpiActiveConnections">0</h3>
+                    <span class="kpi-subtext">Concurrent in flight</span>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-icon icon-cyan">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                </div>
+                <div class="kpi-info">
+                    <span class="kpi-label">Requests Processed</span>
+                    <h3 class="kpi-value text-cyan" id="kpiTotalRequests">0</h3>
+                    <span class="kpi-subtext">Cumulative cluster throughput</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts Section (Live CPU Trend & Load Distribution) -->
+        <section class="charts-grid">
+            <div class="chart-card card">
+                <div class="chart-header">
+                    <div>
+                        <h3>Cluster CPU Utilization Trend</h3>
+                        <p>Continuous monitoring every 2.5s • Threshold line at 80%</p>
+                    </div>
+                    <span class="live-pill"><span class="pulse-dot"></span> LIVE</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="cpuTrendChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card card">
+                <div class="chart-header">
+                    <div>
+                        <h3>Round Robin Request Distribution</h3>
+                        <p>Requests processed per Virtual Machine</p>
+                    </div>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="distributionChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <!-- Virtual Machine Pool Cards Grid -->
+        <section class="vm-section">
+            <div class="section-title-bar">
+                <div class="title-left">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/>
+                        <rect x="2" y="14" width="20" height="8" rx="2" ry="2"/>
+                    </svg>
+                    <h2>Virtual Machine Pool</h2>
+                    <span class="count-badge" id="vmCountBadge">3 Active</span>
+                </div>
+                <div class="legend">
+                    <span class="legend-item"><span class="dot dot-healthy"></span> Healthy</span>
+                    <span class="legend-item"><span class="dot dot-unhealthy"></span> Unhealthy</span>
+                    <span class="legend-item"><span class="dot dot-scaled"></span> Auto-Scaled</span>
+                </div>
+            </div>
+
+            <!-- Dynamic VM Cards injected by JavaScript -->
+            <div class="vm-grid" id="vmGridContainer">
+                <!-- Rendered dynamically -->
+            </div>
+        </section>
+
+        <!-- Activity & Event Logs Section -->
+        <section class="activity-section card">
+            <div class="activity-header">
+                <div class="activity-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
+                    </svg>
+                    <h3>Cluster Activity & Event Stream</h3>
+                </div>
+                <div class="activity-actions">
+                    <span class="log-count" id="logCountText">0 events recorded</span>
+                </div>
+            </div>
+            <div class="console-wrapper" id="activityLogConsole">
+                <div class="console-line info">
+                    <span class="timestamp">[00:00:00]</span>
+                    <span class="tag tag-info">INFO</span>
+                    <span class="msg">Connecting to CloudPilot Java backend service...</span>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Notification Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p><strong>CloudPilot</strong> &bull; B.Tech 3rd Semester OOP Academic Project in Java & Spring Boot</p>
+        <p>Features: Generic ResourcePool&lt;T&gt; &bull; Round Robin Load Balancer &bull; Autonomous Background AutoScalerThread &bull; Custom Exception Handling</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="js/charts.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
